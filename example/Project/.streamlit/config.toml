@@ -1,0 +1,10 @@
+# Force a consistent light theme so the app looks the same for every user
+# (this is what keeps the sidebar text dark and readable). Picked up when the
+# app is launched from this directory: `cd example/Project && streamlit run near_wellbore_app.py`.
+[theme]
+base = "light"
+primaryColor = "#2563eb"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f8fafc"
+textColor = "#1f2937"
+font = "sans serif"
