@@ -1,0 +1,6 @@
+# Runtime dependencies for the Near-Wellbore Stresses Streamlit app
+# (the GeomechPy package itself is imported from the repository root)
+streamlit>=1.30
+plotly>=5.18
+numpy>=1.24
+pandas>=2.0
