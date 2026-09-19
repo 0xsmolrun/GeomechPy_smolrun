@@ -89,8 +89,16 @@ borehole wall, built on
   Poisson's ratio, and azimuthal sampling — with stress-regime presets.
 - **psi ⇄ ppg unit toggle** — switch every plot, KPI and table between stress in
   psi and the equivalent mud weight in ppg (`= psi / (0.052 × TVD)`).
-- **Azimuthal profile** and **trajectory compare** views with interpretation
+- **Azimuthal profile** (σrr, σθθ, σzz, σtz and the three principal wall
+  stresses σ₁/σ₂/σ₃) and **trajectory compare** views with interpretation
   guides, plus a data table with CSV download.
+- **Failure modes (Bratton et al., SPWLA 1999)** — a "Principal stresses vs mud
+  density" plot and a "Stability Plot" of Delta-Stability for each shear/tensile
+  failure mode (Swbo, Ssko, Shae, Snbo, Slae, Sdko, Tcyl, Thor, Tver), with the
+  safe mud-weight window (collapse → fracture) shaded and the current mud weight
+  marked. Needs the rock-strength inputs C₀, φ, T₀ and Biot α in the sidebar.
 
-Charts are responsive, render on clean white cards, carry legends, and use
-spaced tick labels so axis text stays readable.
+Built on the updated `geomechpy.near_wellbore_stresses` API (borehole-wall and
+general Kirsch solutions, three principal wall stresses). Charts are responsive,
+render on clean white cards, carry legends, and use spaced tick labels so axis
+text stays readable.
