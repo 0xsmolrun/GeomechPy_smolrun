@@ -24,10 +24,16 @@ from plotly.subplots import make_subplots
 import streamlit as st
 
 # --- make GeomechPy importable (repo root is two levels up) -----------------
+# Force the repository's geomechpy to take precedence over any stale copy that
+# may already be installed in the environment (e.g. on Streamlit Cloud), by
+# putting the repo root first on sys.path and dropping any pre-imported modules.
 APP_DIR = Path(__file__).resolve().parent
 REPO_ROOT = APP_DIR.parent.parent
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+if str(REPO_ROOT) in sys.path:
+    sys.path.remove(str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT))
+for _stale in [m for m in list(sys.modules) if m == "geomechpy" or m.startswith("geomechpy.")]:
+    del sys.modules[_stale]
 
 try:
     from geomechpy.near_wellbore_stresses import NearWellboreStressesCalculation
@@ -170,6 +176,36 @@ def _apply_preset() -> None:
 # ---------------------------------------------------------------------------
 # Compute (cached) — near-wellbore wall stresses (library, all in psi)
 # ---------------------------------------------------------------------------
+# --- Compatibility shim: work with both the new (`*_boreholewall`) and the old
+#     geomechpy near-wellbore APIs, so the app never crashes on an environment
+#     that still ships an older library version. ---------------------------------
+def _wall_components(wall):
+    """(rr, tt, zz, tz) from a wall-stress result, new or old attribute names."""
+    def pick(new, old):
+        return getattr(wall, new) if hasattr(wall, new) else getattr(wall, old)
+    return (pick("sigma_boreholewall_rr", "sigma_rr"),
+            pick("sigma_boreholewall_tt", "sigma_tt"),
+            pick("sigma_boreholewall_zz", "sigma_zz"),
+            pick("sigma_boreholewall_tz", "sigma_tz"))
+
+
+def _principal_components(rr, tt, zz, tz):
+    """(σ1, σ2, σ3, tortuosity) using whichever principal-stress API exists."""
+    N = NearWellboreStressesCalculation
+    if hasattr(N, "calculate_principal_stresses_analytical_boreholewall"):
+        p = N.calculate_principal_stresses_analytical_boreholewall(
+            sigma_boreholewall_rr=rr, sigma_boreholewall_tt=tt,
+            sigma_boreholewall_zz=zz, sigma_boreholewall_tz=tz,
+        )
+        return (p.sigma_boreholewall_1, p.sigma_boreholewall_2,
+                p.sigma_boreholewall_3, p.theta_boreholewall_tortuosity)
+    # Older API: two in-plane principals (t-z), no radial term -> fold rr in.
+    p = N.calculate_principal_stresses_analytical(sigma_tt=tt, sigma_zz=zz, sigma_tz=tz)
+    stacked = np.sort(np.stack([np.asarray(p.sigma_1), np.asarray(p.sigma_2),
+                                np.asarray(rr)], axis=0), axis=0)
+    return stacked[2], stacked[1], stacked[0], p.theta_tortuosity
+
+
 @st.cache_data(show_spinner=False)
 def compute_wall(shmin, shmax, svert, pp, mud, az, dev, bh_az, pr, n) -> pd.DataFrame:
     theta = np.linspace(0.0, 360.0, int(n))
@@ -178,22 +214,18 @@ def compute_wall(shmin, shmax, svert, pp, mud, az, dev, bh_az, pr, n) -> pd.Data
         shmax_azimuth=az, mud_pressure=mud, theta=theta,
         poisson_ratio_static=pr, borehole_deviation=dev, borehole_azimuth=bh_az,
     )
-    prin = NearWellboreStressesCalculation.calculate_principal_stresses_analytical_boreholewall(
-        sigma_boreholewall_rr=wall.sigma_boreholewall_rr,
-        sigma_boreholewall_tt=wall.sigma_boreholewall_tt,
-        sigma_boreholewall_zz=wall.sigma_boreholewall_zz,
-        sigma_boreholewall_tz=wall.sigma_boreholewall_tz,
-    )
+    rr, tt, zz, tz = _wall_components(wall)
+    s1, s2, s3, tort = _principal_components(rr, tt, zz, tz)
     return pd.DataFrame({
         "theta": theta,
-        "sigma_rr": wall.sigma_boreholewall_rr,
-        "sigma_tt": wall.sigma_boreholewall_tt,
-        "sigma_zz": wall.sigma_boreholewall_zz,
-        "sigma_tz": wall.sigma_boreholewall_tz,
-        "sigma_1": prin.sigma_boreholewall_1,
-        "sigma_2": prin.sigma_boreholewall_2,
-        "sigma_3": prin.sigma_boreholewall_3,
-        "tortuosity": prin.theta_boreholewall_tortuosity,
+        "sigma_rr": rr,
+        "sigma_tt": tt,
+        "sigma_zz": zz,
+        "sigma_tz": tz,
+        "sigma_1": s1,
+        "sigma_2": s2,
+        "sigma_3": s3,
+        "tortuosity": tort,
     })
 
 
