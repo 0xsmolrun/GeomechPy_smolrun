@@ -9,6 +9,7 @@ be installed apart from the plotting/UI dependencies.
 | File | Type | What it does |
 | --- | --- | --- |
 | `MEM_Calculator.py` | Streamlit app | 1D Mechanical Earth Model + wellbore-stability calculator (logs → stresses → rock properties → mud-weight window), with QC and tornado sensitivity. |
+| `Stress_Barrier_Planner.py` | Streamlit app | Stress-barrier analysis & perforation-zone planner (horizontal stresses → stress contrast → Good/Moderate/Poor perforation zones). |
 | `near_wellbore_app.py` | Streamlit app | Kirsch near-wellbore borehole-wall stress visualizer. |
 | `Quick_MEM.ipynb` | Notebook | End-to-end 1D MEM walkthrough with QC plots. |
 | `Kirsch_Visualizer.ipynb` | Notebook | Kirsch near-wellbore stress notebook. |
@@ -22,8 +23,9 @@ be installed apart from the plotting/UI dependencies.
 cd example/Project
 pip install -r requirements.txt
 
-streamlit run MEM_Calculator.py       # MEM + wellbore stability calculator
-streamlit run near_wellbore_app.py    # near-wellbore stress visualizer
+streamlit run MEM_Calculator.py        # MEM + wellbore stability calculator
+streamlit run Stress_Barrier_Planner.py  # stress-barrier & perforation planner
+streamlit run near_wellbore_app.py     # near-wellbore stress visualizer
 ```
 
 Run from this directory so Streamlit picks up `.streamlit/config.toml`. Each app
@@ -56,6 +58,25 @@ It bundles the calculation engine and the Streamlit UI into one module so it can
 be hosted directly. The McNally UCS and GR-linear friction-angle correlations
 are implemented inside the app (they are not part of this GeomechPy build);
 everything else is delegated to the library.
+
+## Stress_Barrier_Planner.py — Stress Barrier Analysis & Perforation Planner
+
+A single-file tool that turns rock properties into a perforation plan. Upload a
+well log (CSV / Excel / LAS) with Young's modulus, Poisson's ratio and (log or
+gradient-derived) pore pressure and overburden, set the horizontal strains, and
+it will:
+
+- **Flag lithology** from a GR cutoff — reservoir sand vs non-reservoir shale.
+- **Compute horizontal stresses** (Shmin / SHmax) with GeomechPy's poroelastic
+  equation, using your manual εh / εH strains and Biot coefficient.
+- **Analyse the stress contrast** between each reservoir interval and the
+  adjacent shale to locate **stress barriers**.
+- **Recommend perforation zones** graded **Good** (barrier above and below),
+  **Moderate** (one side) or **Poor** (uncontained or too thin), with a
+  composite log display and CSV exports.
+
+Like the MEM calculator, the calculation engine and Streamlit UI are bundled
+into one module; all geomechanics is delegated to GeomechPy.
 
 ## near_wellbore_app.py — Near-Wellbore Stresses
 
