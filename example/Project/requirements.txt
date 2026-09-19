@@ -1,6 +1,11 @@
-# Runtime dependencies for the Near-Wellbore Stresses Streamlit app
-# (the GeomechPy package itself is imported from the repository root)
+# Runtime dependencies for the Streamlit apps in this folder
+# (near_wellbore_app.py and MEM_Calculator.py). The GeomechPy package itself
+# is imported from the repository root, so it does not need installing.
 streamlit>=1.30
 plotly>=5.18
 numpy>=1.24
 pandas>=2.0
+
+# MEM_Calculator.py extras — optional input formats
+openpyxl>=3.1   # read .xls/.xlsx well-log uploads
+lasio>=0.31     # read .las well-log uploads
