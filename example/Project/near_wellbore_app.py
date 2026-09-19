@@ -274,6 +274,27 @@ def bratton_analysis(shmax, shmin, svert, pp, tvd, nu, biot, ucs, fang, tstr,
             "shear_ok": shear_ok, "tensile_ok": tensile_ok}
 
 
+def _interp_delta(mw_grid, series, x):
+    """Delta-Stability of a mode at mud weight x (linear interpolation)."""
+    return float(np.interp(x, np.asarray(mw_grid, dtype=float), np.asarray(series, dtype=float)))
+
+
+def _governing_modes(bratton):
+    """From the observed curves, which mode sets the collapse (low) and fracture
+    (high) mud-weight bound. The binding mode at a bound is the one whose
+    Delta-Stability is closest to zero there. Returns (lower_mode, upper_mode)."""
+    mwg = bratton["mw"]
+    win_lo, win_hi = bratton["window"]
+    lower = upper = None
+    if np.isfinite(win_lo):
+        bo = bratton["by_azimuth"]["Shmin azimuth (breakout)"]
+        lower = min(SHEAR_MODES, key=lambda m: _interp_delta(mwg, bo[m].to_numpy(), win_lo))
+    if np.isfinite(win_hi):
+        fr = bratton["by_azimuth"]["SHmax azimuth (fracture)"]
+        upper = min(TENSILE_MODES, key=lambda m: _interp_delta(mwg, fr[m].to_numpy(), win_hi))
+    return lower, upper
+
+
 # ---------------------------------------------------------------------------
 # Sidebar — inputs
 # ---------------------------------------------------------------------------
@@ -576,31 +597,74 @@ with tab_fail:
     fig2.update_layout(showlegend=True)
     st.plotly_chart(fig2, use_container_width=True, config=CHART_CONFIG)
 
+    # --- Dynamic interpretation read straight off the computed curves ---
+    mwg = bratton["mw"]
+    lower_gov, upper_gov = _governing_modes(bratton)
+    cur = {m: _interp_delta(mwg, bdf[m].to_numpy(), MW_now) for m in show_modes}
+    failed_now = [m for m, v in cur.items() if v < 0]
+    nearest = min(cur, key=cur.get) if cur else None
+
     if np.isfinite(win_lo):
-        status = "inside" if win_lo <= MW_now <= win_hi else "OUTSIDE"
+        if MW_now < win_lo:
+            verdict = (f"below the window by {win_lo - MW_now:.2f} ppg — "
+                       "the plotted breakout modes are (or are about to go) negative, so expect "
+                       "<b>shear breakouts / hole collapse</b>. Raise the mud weight.")
+        elif MW_now > win_hi:
+            verdict = (f"above the window by {MW_now - win_hi:.2f} ppg — "
+                       "the tensile modes are negative, so expect <b>drilling-induced fractures "
+                       "and mud losses</b>. Lower the mud weight.")
+        else:
+            head = min(win_hi - MW_now, MW_now - win_lo)
+            verdict = (f"inside the safe window, with about {head:.2f} ppg of margin to the "
+                       "nearer limit.")
+
+        # observation about the selected azimuth at the current mud weight
+        if failed_now:
+            obs = ("At your mud weight and this azimuth the curves that sit <b>below the Δ = 0 "
+                   f"line are: {', '.join(m.split(' — ')[0] for m in failed_now)}</b> "
+                   "(these modes have already failed).")
+        elif nearest is not None:
+            obs = (f"At your mud weight and this azimuth every plotted curve is above Δ = 0; the "
+                   f"one closest to failing is <b>{nearest.split(' — ')[0]}</b> "
+                   f"(Δ ≈ {fmt(cur[nearest])}).")
+        else:
+            obs = "Select one or more failure modes above to see their Delta-Stability."
+
         st.markdown(
             f"""
             <div class="nw-note">
-            <b>Safe mud-weight window: {win_lo:.2f} – {win_hi:.2f} ppg.</b>
-            The green band is where every shear mode is stable at the Shmin azimuth <i>and</i>
-            every tensile mode is stable at the SHmax azimuth. Your current mud weight
-            (<b>{MW_now:.2f} ppg</b>, dashed green line) is <b>{status}</b> the window.
+            <b>Interpretation of the stability plot.</b> Each curve is a mode's Delta-Stability;
+            it is <b>stable where the curve is above the black Δ = 0 line</b> and failed below it.
+            Breakout (shear) curves <b>rise</b> with mud density, tensile curves <b>fall</b>, so the
+            two sets pin the window from opposite sides.
             <ul style="margin:.4rem 0 0 .1rem">
-              <li><b>Below the window</b> the hoop stress is too high → shear <b>breakouts</b>
-                  (Swbo/Ssko…). Raise mud weight.</li>
-              <li><b>Above the window</b> the hoop stress goes tensile → <b>fracturing</b>
-                  (Tver) and losses. Lower mud weight.</li>
-              <li>Delta-Stability follows Bratton Eq. 5 (shear: C₀ + σ₃·tan²(45+φ/2) − σ₁) and
-                  Eq. 6 (tensile: σ + T₀).</li>
+              <li><b>Collapse limit ≈ {win_lo:.2f} ppg</b> — the last breakout mode to cross Δ = 0.
+                  Here it is governed by <b>{(lower_gov or '—')}</b>: below this mud weight that
+                  curve goes negative first.</li>
+              <li><b>Fracture limit ≈ {win_hi:.2f} ppg</b> — the first tensile mode to cross Δ = 0,
+                  governed by <b>{(upper_gov or '—')}</b>: above this mud weight it goes negative.</li>
+              <li>Your mud weight <b>{MW_now:.2f} ppg</b> (dashed line) is {verdict}</li>
+              <li>{obs}</li>
+              <li>Modes whose curve never dips below Δ = 0 across the scanned range do not fail for
+                  these inputs. Delta-Stability follows Bratton Eq. 5 (shear:
+                  C₀ + σ₃·tan²(45+φ/2) − σ₁) and Eq. 6 (tensile: σ + T₀).</li>
             </ul>
             </div>
             """,
             unsafe_allow_html=True,
         )
     else:
+        neg_modes = [m for m in (list(SHEAR_MODES) + list(TENSILE_MODES))
+                     if (bratton["by_azimuth"]["Shmin azimuth (breakout)"][m].min() < 0
+                         if m in SHEAR_MODES
+                         else bratton["by_azimuth"]["SHmax azimuth (fracture)"][m].min() < 0)]
         st.warning(
-            "No stable mud weight exists in the scanned range — the window is closed. "
-            "Check the stresses, strength (C₀, φ, T₀) and pore pressure."
+            "The window is closed — no mud weight in the scanned range keeps every mode above "
+            "Δ = 0. On the stability plot the breakout curves only clear Δ = 0 at a higher mud "
+            "weight than the tensile curves can tolerate, so the safe band vanishes. "
+            + (f"Modes that go negative: {', '.join(m.split(' — ')[0] for m in neg_modes)}. "
+               if neg_modes else "")
+            + "Increase rock strength (C₀, φ, T₀), or revisit the stresses / pore pressure."
         )
 
 # ---- Data -----------------------------------------------------------------
