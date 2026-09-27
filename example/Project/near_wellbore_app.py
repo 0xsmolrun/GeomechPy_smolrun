@@ -296,6 +296,84 @@ def _governing_modes(bratton):
 
 
 # ---------------------------------------------------------------------------
+# Near-wellbore stress maps (ARMA 13-150 / general Kirsch solution)
+# ---------------------------------------------------------------------------
+def _general_components(shmin, shmax, svert, pp, mud, az, TH, R, pr, dev, bh_az, bitsize):
+    """σrr, σθθ, σzz, σrθ on a (θ, r) grid using the general Kirsch solution.
+
+    Uses geomechpy's `calculate_kirsch_borehole_stresses_general` when available;
+    otherwise falls back to the vertical-well closed form (ARMA 13-150 Eqs. 7-10)."""
+    N = NearWellboreStressesCalculation
+    if hasattr(N, "calculate_kirsch_borehole_stresses_general"):
+        g = N.calculate_kirsch_borehole_stresses_general(
+            shmin=shmin, shmax=shmax, svert=svert, pore_pressure=pp,
+            shmax_azimuth=az, mud_pressure=mud, theta=TH, radius=R,
+            poisson_ratio_static=pr, borehole_deviation=dev, borehole_azimuth=bh_az,
+            bitsize=bitsize,
+        )
+        return {"rr": np.asarray(g.sigma_general_rr, float),
+                "tt": np.asarray(g.sigma_general_tt, float),
+                "zz": np.asarray(g.sigma_general_zz, float),
+                "rt": np.asarray(g.sigma_general_rt, float)}
+    # Fallback: vertical-well Kirsch, angle α measured from the SHmax azimuth.
+    a2 = (bitsize / R) ** 2
+    a4 = (bitsize / R) ** 4
+    al = np.deg2rad(TH - az)
+    sH, sh, dpw = shmax, shmin, (mud - pp)
+    return {
+        "rr": 0.5 * (sH + sh) * (1 - a2) + 0.5 * (sH - sh) * (1 - 4 * a2 + 3 * a4) * np.cos(2 * al) + dpw * a2,
+        "tt": 0.5 * (sH + sh) * (1 + a2) - 0.5 * (sH - sh) * (1 + 3 * a4) * np.cos(2 * al) - dpw * a2,
+        "zz": svert - 2 * pr * (sH - sh) * a2 * np.cos(2 * al),
+        "rt": -0.5 * (sH - sh) * (1 + 2 * a2 - 3 * a4) * np.sin(2 * al),
+    }
+
+
+@st.cache_data(show_spinner=False)
+def stress_field(shmin, shmax, svert, pp, mud, az, dev, bh_az, pr, r_mult, ngrid):
+    """2D near-wellbore stress field on a cross-section disk (values in psi).
+
+    Returns the axis (in hole radii, North up) and a dict of component grids with
+    NaN inside the hole and outside the disk."""
+    bitsize = 1.0
+    Rmax = float(r_mult) * bitsize
+    lin = np.linspace(-Rmax, Rmax, int(ngrid))
+    X, Y = np.meshgrid(lin, lin)
+    R = np.sqrt(X * X + Y * Y)
+    TH = np.degrees(np.arctan2(X, Y)) % 360.0  # azimuth from North (up), clockwise
+    with np.errstate(invalid="ignore", divide="ignore"):
+        Rc = np.where(R >= bitsize, R, np.nan)
+        comp = _general_components(shmin, shmax, svert, pp, mud, az, TH, Rc, pr, dev, bh_az, bitsize)
+    outside = (R < bitsize) | (R > Rmax)
+    for k in list(comp):
+        comp[k] = np.where(outside, np.nan, comp[k])
+    return lin, comp
+
+
+def polar_map_fig(lin, z, title, unit, colorscale="Jet", zmid=None):
+    """Filled 2D polar heatmap of a stress component on the wellbore cross-section."""
+    fig = go.Figure(go.Heatmap(
+        x=lin, y=lin, z=z, colorscale=colorscale, zmid=zmid, zsmooth="best",
+        colorbar=dict(title=unit, thickness=12, len=0.9, outlinewidth=0),
+        hovertemplate="x %{x:.2f}·R · y %{y:.2f}·R<br>%{z:,.0f} " + unit + "<extra></extra>",
+    ))
+    fig.update_xaxes(visible=False, range=[float(lin.min()), float(lin.max())])
+    fig.update_yaxes(visible=False, range=[float(lin.min()), float(lin.max())],
+                     scaleanchor="x", scaleratio=1)
+    fig.update_layout(
+        title=dict(text=title, x=0.5, xanchor="center", font=dict(size=14, color="#111827")),
+        height=380, autosize=True, paper_bgcolor=CARD_BG, plot_bgcolor=CARD_BG,
+        margin=dict(l=10, r=10, t=44, b=10),
+        font=dict(family="Inter, system-ui, sans-serif", color=INK, size=12),
+    )
+    m = float(lin.max())
+    fig.add_annotation(x=0, y=0, text="+", showarrow=False, font=dict(size=16, color="#111827"))
+    for x, y, t in [(0, m * 0.93, "N"), (m * 0.93, 0, "E"), (0, -m * 0.93, "S"), (-m * 0.93, 0, "W")]:
+        fig.add_annotation(x=x, y=y, text=t, showarrow=False,
+                           font=dict(size=12, color="#111827"), bgcolor="rgba(255,255,255,0.65)")
+    return fig
+
+
+# ---------------------------------------------------------------------------
 # Sidebar — inputs
 # ---------------------------------------------------------------------------
 with st.sidebar:
@@ -357,7 +435,7 @@ st.markdown(
     f"""
     <div class="nw-hero">
       <h1>🛢️ Near-Wellbore Stresses</h1>
-      <p>Kirsch borehole-wall stresses &amp; Bratton (1999) failure analysis · powered by
+      <p>Kirsch borehole-wall stresses &amp; near-wellbore stress maps · powered by
       <b>GeomechPy</b> · SHmax az {s.az:.0f}° · deviation {s.dev:.0f}° ·
       Pw {s.mud:.0f} psi · TVD {s.tvd:.0f} ft</p>
     </div>
@@ -452,9 +530,9 @@ CHART_CONFIG = {"displayModeBar": False, "responsive": True, "scrollZoom": False
 # ---------------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------------
-tab_azim, tab_traj, tab_fail, tab_data = st.tabs(
-    ["📈 Azimuthal profile", "🎯 Trajectory compare",
-     "🧱 Failure modes (Bratton 1999)", "🗂️ Data"]
+tab_azim, tab_maps, tab_traj, tab_mud, tab_data = st.tabs(
+    ["📈 Azimuthal profile", "🗺️ Stress maps", "🎯 Trajectory compare",
+     "🛢️ Mud window", "🗂️ Data"]
 )
 
 # ---- Azimuthal profile ----------------------------------------------------
@@ -537,15 +615,80 @@ with tab_traj:
         unsafe_allow_html=True,
     )
 
-# ---- Failure modes (Bratton 1999) -----------------------------------------
-with tab_fail:
+# ---- Stress maps (ARMA 13-150 / general Kirsch) ---------------------------
+with tab_maps:
     st.caption(
-        "Bratton et al. (SPWLA, 1999) analysis for a **vertical well**: effective wall stresses "
-        "(total − αPp) and the Delta-Stability of each failure mode vs mud density. "
-        "Positive Delta-Stability = stable; negative = failed."
+        "Near-wellbore stress distribution on a cross-section perpendicular to the hole "
+        "(general Kirsch solution, after Ostadhassan et al., ARMA 13-150). North is up; the "
+        "‘+’ marks the hole centre; the white ring is the borehole."
+    )
+    c_ext, c_res = st.columns(2)
+    r_mult = c_ext.slider("Radial extent (× hole radius)", 2.0, 8.0, 4.0, 0.5, key="map_extent")
+    ngrid = c_res.select_slider("Grid resolution", options=[120, 180, 240, 320], value=180,
+                                key="map_grid")
+    lin, comp = stress_field(s.shmin, s.shmax, s.svert, s.pp, s.mud, s.az,
+                             s.dev, s.bh_az, s.pr, r_mult, ngrid)
+
+    m1, m2 = st.columns(2)
+    with m1:
+        st.plotly_chart(polar_map_fig(lin, to_unit(comp["rr"]), f"σrr — radial ({USUFFIX})", USUFFIX),
+                        use_container_width=True, config=CHART_CONFIG)
+    with m2:
+        st.plotly_chart(polar_map_fig(lin, to_unit(comp["tt"]), f"σθθ — tangential / hoop ({USUFFIX})",
+                                      USUFFIX), use_container_width=True, config=CHART_CONFIG)
+
+    m3, m4 = st.columns(2)
+    with m3:
+        # Stress components at the wall + Mohr-Coulomb critical stress (Eq. 14)
+        q = np.tan(np.deg2rad(45.0 + s.fang / 2.0)) ** 2
+        crit = q * df["sigma_rr"] + s.ucs  # σθθ must stay below this to avoid breakout
+        figc = go.Figure()
+        for col, name, color in [("sigma_rr", "σrr", "#6b7280"), ("sigma_tt", "σθθ", "#2563eb"),
+                                 ("sigma_zz", "σzz", "#059669"), ("sigma_tz", "σrθ shear", "#d97706")]:
+            figc.add_trace(go.Scatter(x=theta, y=to_unit(df[col]), mode="lines", name=name,
+                                      line=dict(color=color, width=2)))
+        figc.add_trace(go.Scatter(x=theta, y=to_unit(crit), mode="lines", name="Critical stress (M-C)",
+                                  line=dict(color="#111827", width=1.6, dash="dash")))
+        _base_layout(figc, height=380, title=f"Stress components at the wall ({USUFFIX})")
+        figc.update_xaxes(title_text="Angle around the hole (deg from TOH)", range=[0, 360], dtick=45)
+        figc.update_yaxes(title_text=f"Stress ({USUFFIX})")
+        figc.update_layout(showlegend=True, margin=dict(l=64, r=28, t=44, b=96))
+        st.plotly_chart(figc, use_container_width=True, config=CHART_CONFIG)
+    with m4:
+        st.plotly_chart(polar_map_fig(lin, to_unit(comp["rt"]), f"σrθ — shear ({USUFFIX})", USUFFIX,
+                                      colorscale="RdBu", zmid=0.0),
+                        use_container_width=True, config=CHART_CONFIG)
+
+    st.markdown(
+        f"""
+        <div class="nw-note">
+        <b>How to read the maps.</b> Each disk is a horizontal slice through the rock around the
+        borehole; colour is the Kirsch stress at that point, in <b>{USUFFIX}</b>.
+        <ul style="margin:.4rem 0 0 .1rem">
+          <li><b>σrr (radial)</b> equals the mud support (Pw − Pp) at the wall and relaxes back to
+              the far-field stress a few radii out.</li>
+          <li><b>σθθ (hoop)</b> is the stress concentration that drives failure: its <b>hottest lobes
+              (max σθθ) sit at the Shmin azimuth → breakouts</b>, and its coldest points at the SHmax
+              azimuth → tensile fractures. The white-ring contrast is strongest here.</li>
+          <li><b>σrθ (shear)</b> is diverging (blue − / red +) and vanishes on the principal-stress
+              axes; its four-lobe pattern shows where shear is largest off-axis.</li>
+          <li>The <b>stress-components plot</b> is the wall (r = Rw) traverse. Where the <b>σθθ curve
+              rises above the dashed Mohr-Coulomb critical line</b>
+              (σθθ = tan²(45+φ/2)·σrr + C₀, Eq. 14) the wall is predicted to break out.</li>
+        </ul>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+# ---- Mud window -----------------------------------------------------------
+with tab_mud:
+    st.caption(
+        "Effective wall stresses vs mud density with the safe mud-weight window "
+        "(breakout → fracture), for a vertical well."
     )
     if s.dev > 0:
-        st.info("This analysis assumes a vertical well; the deviation set in the sidebar is ignored here.")
+        st.info("This mud-window view assumes a vertical well; the sidebar deviation is ignored here.")
 
     azkey = st.radio("Evaluate at",
                      ["Shmin azimuth (breakout)", "SHmax azimuth (fracture)"],
@@ -553,13 +696,6 @@ with tab_fail:
     bdf = bratton["by_azimuth"][azkey]
     mw = bdf["MW"].to_numpy()
 
-    def _mw_shade(fig):
-        if np.isfinite(win_lo):
-            fig.add_vrect(x0=win_lo, x1=win_hi, fillcolor="rgba(16,185,129,0.10)",
-                          line_width=0, layer="below")
-        fig.add_vline(x=MW_now, line=dict(color="#0b6e4f", width=2, dash="dash"))
-
-    # --- Plot 1: principal (effective) wall stresses vs mud density ---
     fig1 = go.Figure()
     for col, name, color in [("sigma_r", "Radial σr", "#6b7280"),
                              ("sigma_t", "Tangential σt (hoop)", "#2563eb"),
@@ -568,103 +704,34 @@ with tab_fail:
             x=mw, y=to_unit(bdf[col]), mode="lines", name=name,
             line=dict(color=color, width=2.5),
             hovertemplate="MW %{x:.2f} ppg → %{y:,.1f} " + USUFFIX + "<extra>" + name + "</extra>"))
-    _mw_shade(fig1)
-    _base_layout(fig1, height=430, title=f"Principal wall stresses vs mud density — {azkey}")
+    if np.isfinite(win_lo):
+        fig1.add_vrect(x0=win_lo, x1=win_hi, fillcolor="rgba(16,185,129,0.10)",
+                       line_width=0, layer="below")
+    fig1.add_vline(x=MW_now, line=dict(color="#0b6e4f", width=2, dash="dash"))
+    _base_layout(fig1, height=470, title=f"Wall stresses vs mud density — {azkey} ({USUFFIX})")
     fig1.update_xaxes(title_text="Mud density (ppg)")
     fig1.update_yaxes(title_text=f"Effective stress ({USUFFIX})")
     fig1.update_layout(showlegend=True)
     st.plotly_chart(fig1, use_container_width=True, config=CHART_CONFIG)
 
-    # --- Plot 2: stability plot (Delta-Stability per failure mode) ---
-    show_modes = st.multiselect(
-        "Failure modes",
-        list(SHEAR_MODES) + list(TENSILE_MODES),
-        default=["Swbo — wide breakout", "Snbo — narrow breakout",
-                 "Tver — vertical", "Tcyl — cylindrical"],
-    )
-    fig2 = go.Figure()
-    for mode in show_modes:
-        dash = "dashdot" if mode in TENSILE_MODES else None
-        fig2.add_trace(go.Scatter(
-            x=mw, y=to_unit(bdf[mode]), mode="lines", name=mode,
-            line=dict(color=MODE_COLORS.get(mode, "#334155"), width=2, dash=dash),
-            hovertemplate="MW %{x:.2f} ppg → Δ %{y:,.1f} " + USUFFIX + "<extra>" + mode + "</extra>"))
-    fig2.add_hline(y=0, line=dict(color="#111827", width=1.2))
-    _mw_shade(fig2)
-    _base_layout(fig2, height=470, title=f"Stability plot — Delta-Stability vs mud density ({azkey})")
-    fig2.update_xaxes(title_text="Mud density (ppg)")
-    fig2.update_yaxes(title_text=f"Delta-Stability ({USUFFIX})")
-    fig2.update_layout(showlegend=True)
-    st.plotly_chart(fig2, use_container_width=True, config=CHART_CONFIG)
-
-    # --- Dynamic interpretation read straight off the computed curves ---
-    mwg = bratton["mw"]
-    lower_gov, upper_gov = _governing_modes(bratton)
-    cur = {m: _interp_delta(mwg, bdf[m].to_numpy(), MW_now) for m in show_modes}
-    failed_now = [m for m, v in cur.items() if v < 0]
-    nearest = min(cur, key=cur.get) if cur else None
-
     if np.isfinite(win_lo):
-        if MW_now < win_lo:
-            verdict = (f"below the window by {win_lo - MW_now:.2f} ppg — "
-                       "the plotted breakout modes are (or are about to go) negative, so expect "
-                       "<b>shear breakouts / hole collapse</b>. Raise the mud weight.")
-        elif MW_now > win_hi:
-            verdict = (f"above the window by {MW_now - win_hi:.2f} ppg — "
-                       "the tensile modes are negative, so expect <b>drilling-induced fractures "
-                       "and mud losses</b>. Lower the mud weight.")
-        else:
-            head = min(win_hi - MW_now, MW_now - win_lo)
-            verdict = (f"inside the safe window, with about {head:.2f} ppg of margin to the "
-                       "nearer limit.")
-
-        # observation about the selected azimuth at the current mud weight
-        if failed_now:
-            obs = ("At your mud weight and this azimuth the curves that sit <b>below the Δ = 0 "
-                   f"line are: {', '.join(m.split(' — ')[0] for m in failed_now)}</b> "
-                   "(these modes have already failed).")
-        elif nearest is not None:
-            obs = (f"At your mud weight and this azimuth every plotted curve is above Δ = 0; the "
-                   f"one closest to failing is <b>{nearest.split(' — ')[0]}</b> "
-                   f"(Δ ≈ {fmt(cur[nearest])}).")
-        else:
-            obs = "Select one or more failure modes above to see their Delta-Stability."
-
+        status = "inside" if win_lo <= MW_now <= win_hi else "OUTSIDE"
         st.markdown(
             f"""
             <div class="nw-note">
-            <b>Interpretation of the stability plot.</b> Each curve is a mode's Delta-Stability;
-            it is <b>stable where the curve is above the black Δ = 0 line</b> and failed below it.
-            Breakout (shear) curves <b>rise</b> with mud density, tensile curves <b>fall</b>, so the
-            two sets pin the window from opposite sides.
-            <ul style="margin:.4rem 0 0 .1rem">
-              <li><b>Collapse limit ≈ {win_lo:.2f} ppg</b> — the last breakout mode to cross Δ = 0.
-                  Here it is governed by <b>{(lower_gov or '—')}</b>: below this mud weight that
-                  curve goes negative first.</li>
-              <li><b>Fracture limit ≈ {win_hi:.2f} ppg</b> — the first tensile mode to cross Δ = 0,
-                  governed by <b>{(upper_gov or '—')}</b>: above this mud weight it goes negative.</li>
-              <li>Your mud weight <b>{MW_now:.2f} ppg</b> (dashed line) is {verdict}</li>
-              <li>{obs}</li>
-              <li>Modes whose curve never dips below Δ = 0 across the scanned range do not fail for
-                  these inputs. Delta-Stability follows Bratton Eq. 5 (shear:
-                  C₀ + σ₃·tan²(45+φ/2) − σ₁) and Eq. 6 (tensile: σ + T₀).</li>
-            </ul>
+            <b>Safe mud-weight window: {win_lo:.2f} – {win_hi:.2f} ppg.</b> The green band is where the
+            wall neither breaks out (too little mud) nor fractures (too much). Your current mud weight
+            (<b>{MW_now:.2f} ppg</b>, dashed line) is <b>{status}</b> the window.
+            As mud density rises the radial support σr increases and the hoop stress σθθ drops —
+            below the window σθθ is too high (breakouts), above it σθθ turns tensile (losses).
             </div>
             """,
             unsafe_allow_html=True,
         )
     else:
-        neg_modes = [m for m in (list(SHEAR_MODES) + list(TENSILE_MODES))
-                     if (bratton["by_azimuth"]["Shmin azimuth (breakout)"][m].min() < 0
-                         if m in SHEAR_MODES
-                         else bratton["by_azimuth"]["SHmax azimuth (fracture)"][m].min() < 0)]
         st.warning(
-            "The window is closed — no mud weight in the scanned range keeps every mode above "
-            "Δ = 0. On the stability plot the breakout curves only clear Δ = 0 at a higher mud "
-            "weight than the tensile curves can tolerate, so the safe band vanishes. "
-            + (f"Modes that go negative: {', '.join(m.split(' — ')[0] for m in neg_modes)}. "
-               if neg_modes else "")
-            + "Increase rock strength (C₀, φ, T₀), or revisit the stresses / pore pressure."
+            "No safe mud-weight window exists for these inputs — the breakout limit is above the "
+            "fracture limit. Increase rock strength (C₀, φ, T₀) or revisit the stresses / pore pressure."
         )
 
 # ---- Data -----------------------------------------------------------------
@@ -697,9 +764,9 @@ with tab_data:
 
 st.markdown(
     f"<p style='color:{MUTED};font-size:.8rem;margin-top:1.4rem'>"
-    "Kirsch wall stresses · <code>geomechpy.near_wellbore_stresses</code>. "
-    "Failure analysis after Bratton, Bornemann, Li, Plumb, Rasmus &amp; Krabbe, "
-    "<i>Logging-While-Drilling Images for Geomechanical, Geological and Petrophysical "
-    "Interpretations</i>, SPWLA 1999. ppg equivalent = psi ÷ (0.052 × TVD).</p>",
+    "Kirsch wall &amp; near-wellbore stresses · <code>geomechpy.near_wellbore_stresses</code>. "
+    "Stress maps after Ostadhassan, Benson, Zamiran &amp; Bubach, <i>Stress Analysis and Wellbore "
+    "Stability in Unconventional Reservoirs</i>, ARMA 13-150 (2013). "
+    "ppg equivalent = psi ÷ (0.052 × TVD).</p>",
     unsafe_allow_html=True,
 )
