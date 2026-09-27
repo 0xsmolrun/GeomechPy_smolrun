@@ -92,11 +92,13 @@ borehole wall, built on
 - **Azimuthal profile** (σrr, σθθ, σzz, σtz and the three principal wall
   stresses σ₁/σ₂/σ₃) and **trajectory compare** views with interpretation
   guides, plus a data table with CSV download.
-- **Failure modes (Bratton et al., SPWLA 1999)** — a "Principal stresses vs mud
-  density" plot and a "Stability Plot" of Delta-Stability for each shear/tensile
-  failure mode (Swbo, Ssko, Shae, Snbo, Slae, Sdko, Tcyl, Thor, Tver), with the
-  safe mud-weight window (collapse → fracture) shaded and the current mud weight
-  marked. Needs the rock-strength inputs C₀, φ, T₀ and Biot α in the sidebar.
+- **Near-wellbore stress maps (Ostadhassan et al., ARMA 13-150)** — 2D polar
+  cross-section maps of σrr, σθθ and σrθ around the borehole (general Kirsch
+  solution), plus a wall stress-components traverse with the Mohr-Coulomb
+  critical-stress line.
+- **Mud window** — effective wall stresses vs mud density with the safe
+  mud-weight window (breakout → fracture) shaded and the current mud weight
+  marked. Uses the rock-strength inputs C₀, φ, T₀ and Biot α in the sidebar.
 
 Built on the updated `geomechpy.near_wellbore_stresses` API (borehole-wall and
 general Kirsch solutions, three principal wall stresses). Charts are responsive,
