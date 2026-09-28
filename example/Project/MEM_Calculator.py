@@ -1424,9 +1424,10 @@ def _build_tornado_figure(tornado: pd.DataFrame, base_value: float, target_outpu
     fig.update_layout(
         barmode="overlay", title=title,
         xaxis_title=f"Depth-averaged {target_label}", yaxis_title="Varied parameter",
-        height=max(360, 90 * len(plot) + 150),
-        legend=dict(orientation="h", yanchor="bottom", y=1.04),
-        margin=dict(t=120, b=40),
+        height=max(360, 90 * len(plot) + 170),
+        # legend below the plot so it never overlaps the two-line title/subtitle
+        legend=dict(orientation="h", yanchor="top", y=-0.18, x=0),
+        margin=dict(t=96, b=96),
     )
     table = t[["Parameter", "low", "high", "pct_low", "pct_high", "swing"]].rename(
         columns={
