@@ -639,21 +639,8 @@ with tab_maps:
 
     m3, m4 = st.columns(2)
     with m3:
-        # Stress components at the wall + Mohr-Coulomb critical stress (Eq. 14)
-        q = np.tan(np.deg2rad(45.0 + s.fang / 2.0)) ** 2
-        crit = q * df["sigma_rr"] + s.ucs  # σθθ must stay below this to avoid breakout
-        figc = go.Figure()
-        for col, name, color in [("sigma_rr", "σrr", "#6b7280"), ("sigma_tt", "σθθ", "#2563eb"),
-                                 ("sigma_zz", "σzz", "#059669"), ("sigma_tz", "σrθ shear", "#d97706")]:
-            figc.add_trace(go.Scatter(x=theta, y=to_unit(df[col]), mode="lines", name=name,
-                                      line=dict(color=color, width=2)))
-        figc.add_trace(go.Scatter(x=theta, y=to_unit(crit), mode="lines", name="Critical stress (M-C)",
-                                  line=dict(color="#111827", width=1.6, dash="dash")))
-        _base_layout(figc, height=380, title=f"Stress components at the wall ({USUFFIX})")
-        figc.update_xaxes(title_text="Angle around the hole (deg from TOH)", range=[0, 360], dtick=45)
-        figc.update_yaxes(title_text=f"Stress ({USUFFIX})")
-        figc.update_layout(showlegend=True, margin=dict(l=64, r=28, t=44, b=96))
-        st.plotly_chart(figc, use_container_width=True, config=CHART_CONFIG)
+        st.plotly_chart(polar_map_fig(lin, to_unit(comp["zz"]), f"σzz — axial ({USUFFIX})", USUFFIX),
+                        use_container_width=True, config=CHART_CONFIG)
     with m4:
         st.plotly_chart(polar_map_fig(lin, to_unit(comp["rt"]), f"σrθ — shear ({USUFFIX})", USUFFIX,
                                       colorscale="RdBu", zmid=0.0),
@@ -670,11 +657,10 @@ with tab_maps:
           <li><b>σθθ (hoop)</b> is the stress concentration that drives failure: its <b>hottest lobes
               (max σθθ) sit at the Shmin azimuth → breakouts</b>, and its coldest points at the SHmax
               azimuth → tensile fractures. The white-ring contrast is strongest here.</li>
+          <li><b>σzz (axial)</b> acts along the borehole axis; it is highest at the Shmin azimuth and
+              lowest at the SHmax azimuth, and can turn tensile (axial fracturing) when it drops low.</li>
           <li><b>σrθ (shear)</b> is diverging (blue − / red +) and vanishes on the principal-stress
               axes; its four-lobe pattern shows where shear is largest off-axis.</li>
-          <li>The <b>stress-components plot</b> is the wall (r = Rw) traverse. Where the <b>σθθ curve
-              rises above the dashed Mohr-Coulomb critical line</b>
-              (σθθ = tan²(45+φ/2)·σrr + C₀, Eq. 14) the wall is predicted to break out.</li>
         </ul>
         </div>
         """,
