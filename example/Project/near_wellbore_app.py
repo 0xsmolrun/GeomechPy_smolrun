@@ -20,7 +20,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import streamlit as st
 
 # --- make GeomechPy importable (repo root is two levels up) -----------------
@@ -537,26 +536,19 @@ tab_azim, tab_maps, tab_traj, tab_mud, tab_data = st.tabs(
 
 # ---- Azimuthal profile ----------------------------------------------------
 with tab_azim:
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig = go.Figure()
     for name, (col, color) in COMPONENT_STYLE.items():
         dash = "dash" if col == "sigma_rr" else None
         fig.add_trace(go.Scatter(
             x=theta, y=to_unit(df[col]), mode="lines", name=name,
             line=dict(color=color, width=2, dash=dash),
             hovertemplate="%{x:.0f}°: %{y:,.1f} " + USUFFIX + "<extra>" + name + "</extra>",
-        ), secondary_y=False)
-    fig.add_trace(go.Scatter(
-        x=theta, y=df["tortuosity"], mode="lines", name="tortuosity θ (deg)",
-        line=dict(color="#94a3b8", width=1.5, dash="dot"),
-        hovertemplate="%{x:.0f}°: %{y:.1f}°<extra>tortuosity</extra>",
-    ), secondary_y=True)
+        ))
     for az_mark, clr in [(breakout_az, "#dc2626"), (tensile_az, "#0ea5e9")]:
         fig.add_vline(x=az_mark, line=dict(color=clr, width=1, dash="dot"))
     _base_layout(fig, height=520, title=f"Wall stress vs azimuth ({USUFFIX})")
     fig.update_xaxes(title_text="θ — azimuth from Top-of-Hole (deg)", range=[0, 360], dtick=45)
-    fig.update_yaxes(title_text=f"Stress ({USUFFIX})", secondary_y=False)
-    fig.update_yaxes(title_text="Tortuosity angle (deg)", secondary_y=True,
-                     showgrid=False, tickfont=dict(size=12, color=MUTED))
+    fig.update_yaxes(title_text=f"Stress ({USUFFIX})")
     fig.update_layout(showlegend=True)
     st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
 
