@@ -187,6 +187,13 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
+# Cursor IDE — ignore personal/session data, but share skills and rules with contributors
+.cursor/*
+!.cursor/skills/
+!.cursor/skills/**
+!.cursor/rules/
+!.cursor/rules/**
+
 # Marimo
 marimo/_static/
 marimo/_lsp/
