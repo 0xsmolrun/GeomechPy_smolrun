@@ -1,39 +1,24 @@
-# Validation notebooks
+# GeomechPy Examples: Elastic Properties & Rock Strength
 
-Worked, executed notebooks that exercise GeomechPy modules end to end and keep their
-output cells, so the numbers can be checked without re-running anything.
+This folder contains an example-driven Jupyter notebook demonstrating practical usage of:
 
-## `elastic_rock_strength_unit_validation.ipynb`
+- `geomechpy/elastic_properties.py` (`ElasticPropertiesConverter`)
+- `geomechpy/rock_strength.py` (`RockStrengthPropertiesConverter`)
+- `geomechpy/unit_converter.py` (`UnitConverter`)
 
-Tests **every public function** in `geomechpy/elastic_properties.py` and
-`geomechpy/rock_strength.py`, using `geomechpy/unit_converter.py` as the unit bridge
-between them. Each step prints its result and is guarded by `assert`; the final cell
-prints `ALL CHECKS PASSED`.
+## Files
 
-Coverage:
+- `elastic_properties_examples.ipynb` — executed example notebook (outputs included) showing real geomechanics workflows
+- `geomechpy/` — local copy of the three modules (for self-contained execution)
 
-- `UnitConverter` — `convert_pressure`, `convert_equivalent_mud_weight`,
-  `convert_length`, `convert_acoustic` and their `_array` variants, checked against
-  first-principles constants and round-trips.
-- `ElasticPropertiesConverter` — the `ElasticProperties` dataclass, all 15 pairwise
-  `convert_from_*` methods (scalar and `_array`), and `convert_dynamic_*` from both
-  slowness and velocity, cross-checked through `convert_acoustic`.
-- `RockStrengthPropertiesConverter` — Plumb UCS, tensile strength and Lal friction
-  angle (scalar and `_array`), fed Young's modulus in Mpsi via `convert_pressure`.
+## What is demonstrated
 
-### Run it
+1. Pairwise conversions between all elastic moduli (Young's, bulk, shear, Lamé, P-wave, Poisson's ratio)
+2. Dynamic elastic properties computed from sonic log data (DTCO/DTSM + density), both from slowness and velocity
+3. Unit conversion between SI (GPa) and oilfield (Mpsi, psi) units
+4. Rock strength estimates: Plumb UCS, tensile strength, Lal friction angle (scalar and array variants)
+5. Full end-to-end log processing workflow
 
-```bash
-pip install jupyter nbconvert pandas numpy
-jupyter nbconvert --to notebook --execute --inplace \
-    validation/elastic_rock_strength_unit_validation.ipynb
-```
+Open the notebook and inspect the saved outputs (or re-run all cells) to verify the calculations.
 
-### Notes on `unit_converter.py` observed while writing this
-
-- The `convert_acoustic` unit keys are the slash forms in the factor tables
-  (`"us/ft"`, `"m/s"`, `"s/ft"`, …); the shorthand aliases in its docstring
-  (`"usft"`, `"ms"`) are not recognised.
-- `from_equivalent_mud_weight_to_pressure` and
-  `convert_from_pressure_to_equivalent_mud_weight` call `convert_pressure(unit)` with a
-  single argument and raise `TypeError`; they are not used by this notebook.
+**Note:** The Plumb UCS correlation currently returns unrealistically small values (order of 1 psi) for typical moduli. This appears to be a units issue in the library (multiplier 0.2103 applied to Mpsi yielding psi-scale results). The notebook reports the actual library output so the behavior can be reviewed and fixed.
